@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,8 @@ import requests
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+
+logging.getLogger("google.genai.models").setLevel(logging.ERROR)
 
 
 def validate_date(value):
