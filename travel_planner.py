@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 
 import requests
 
@@ -237,6 +238,42 @@ def generate_report(
     finally:
         client.close()
 
+def save_results(
+    date,
+    recommendation,
+    restaurants,
+    errors,
+    report,
+):
+    results_directory = Path("results")
+    results_directory.mkdir(exist_ok=True)
+
+    raw_data = {
+        "date": date,
+        "recommendation": recommendation,
+        "restaurants": restaurants,
+        "errors": errors,
+    }
+
+    json_path = results_directory / f"{date}_travel_data.json"
+    report_path = results_directory / f"{date}_travel_plan.md"
+
+    json_path.write_text(
+        json.dumps(
+            raw_data,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    report_path.write_text(
+        report,
+        encoding="utf-8",
+    )
+
+    return json_path, report_path
+
 def main():
     args = parse_args()
     gemini_api_key, kakao_rest_api_key = load_api_keys()
@@ -329,6 +366,18 @@ def main():
 
         print(f"  - 오류: 최종 리포트 생성 실패: {error}")
         raise SystemExit(1)
+
+    json_path, report_path = save_results(
+        args.date,
+        recommendation,
+        restaurants,
+        errors,
+        report,
+    )
+
+    print()
+    print(f"완료! 원본 데이터: {json_path}")
+    print(f"완료! 여행 리포트: {report_path}")
 
 if __name__ == "__main__":
     main()
