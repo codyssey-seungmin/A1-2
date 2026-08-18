@@ -3,6 +3,8 @@ import json
 import os
 from datetime import datetime
 
+import requests
+
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -130,10 +132,58 @@ def generate_recommendation(date, gemini_api_key):
     finally:
         client.close()
 
+def to_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def search_restaurants(city, kakao_rest_api_key):
+    url = "https://dapi.kakao.com/v2/local/search/keyword.json"
+
+    headers = {
+        "Authorization": f"KakaoAK {kakao_rest_api_key}"
+    }
+
+    params = {
+        "query": f"{city} 맛집",
+        "size": 5,
+    }
+
+    response = requests.get(
+        url,
+        headers=headers,
+        params=params,
+        timeout=10,
+    )
+
+    response.raise_for_status()
+
+    documents = response.json().get("documents", [])
+    restaurants = []
+
+    for document in documents:
+        restaurant = {
+            "name": document.get("place_name", ""),
+            "address": (
+                document.get("road_address_name")
+                or document.get("address_name", "")
+            ),
+            "category": document.get("category_name", ""),
+            "url": document.get("place_url", ""),
+            "x": to_float(document.get("x")),
+            "y": to_float(document.get("y")),
+        }
+
+        restaurants.append(restaurant)
+
+    return restaurants
 
 def main():
     args = parse_args()
     gemini_api_key, kakao_rest_api_key = load_api_keys()
+    errors = []
 
     print("[1/3] 1차 추천 생성 중(Gemini)...")
 
@@ -146,20 +196,66 @@ def main():
         print(f"  - 오류: Gemini 추천 생성 실패: {error}")
         raise SystemExit(1)
 
-    print(
-        f'  - recommended_city: '
-        f'"{recommendation["recommended_city"]}"'
-    )
+    city = recommendation["recommended_city"]
+    print(f'  - recommended_city: "{city}"')
 
-    print("\n1차 추천 JSON:")
-    print(
-        json.dumps(
-            recommendation,
-            ensure_ascii=False,
-            indent=2,
+    print("[2/3] 맛집 검색 중(Kakao)...")
+
+    try:
+        restaurants = search_restaurants(
+            city,
+            kakao_rest_api_key,
         )
-    )
 
+        if restaurants:
+            print(f"  - 맛집 {len(restaurants)}곳 검색 완료")
+        else:
+            print("  - 검색 결과 0건, 데이터 없음으로 진행합니다.")
+            errors.append(
+                {
+                    "step": "place_search",
+                    "type": "EMPTY_RESULT",
+                    "message": f"0 results for query={city} 맛집",
+                }
+            )
+
+    except requests.RequestException as error:
+        restaurants = []
+
+        status_code = (
+            error.response.status_code
+            if error.response is not None
+            else None
+        )
+
+        error_type = (
+            "AUTH_ERROR"
+            if status_code in (401, 403)
+            else "API_ERROR"
+        )
+
+        errors.append(
+            {
+                "step": "place_search",
+                "type": error_type,
+                "message": (
+                    f"HTTP {status_code}"
+                    if status_code
+                    else str(error)
+                ),
+            }
+        )
+
+        print(f"  - 오류: Kakao 장소 검색 실패: {error}")
+        print("  - 맛집은 데이터 없음으로 처리하고 계속 진행합니다.")
+
+    print("\n검색된 맛집:")
+
+    if restaurants:
+        for restaurant in restaurants:
+            print(f'  - {restaurant["name"]}')
+    else:
+        print("  - 데이터 없음")
 
 if __name__ == "__main__":
     main()
