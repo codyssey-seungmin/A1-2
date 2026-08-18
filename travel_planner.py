@@ -180,6 +180,63 @@ def search_restaurants(city, kakao_rest_api_key):
 
     return restaurants
 
+def generate_report(
+    date,
+    recommendation,
+    restaurants,
+    errors,
+    gemini_api_key,
+):
+    input_data = {
+        "date": date,
+        "recommendation": recommendation,
+        "restaurants": restaurants,
+        "errors": errors,
+    }
+
+    prompt = f"""
+아래 JSON 데이터를 바탕으로 국내 여행 추천 리포트를 작성하세요.
+
+{json.dumps(input_data, ensure_ascii=False, indent=2)}
+
+반드시 Markdown 형식으로 작성하고 다음 순서를 지키세요.
+
+# {date} 국내 여행 추천 리포트
+## 추천 지역
+## 추천 이유
+## 날씨 요약
+## 행사/축제
+## 맛집 추천
+## 1일 일정 제안
+### 오전
+### 오후
+### 저녁
+## 오류 요약(errors)
+
+작성 규칙:
+- 제공된 JSON 데이터만 활용하세요.
+- 맛집 목록이 비어 있으면 "데이터 없음"이라고 작성하세요.
+- 맛집의 이름, 주소, 카테고리, URL을 보기 좋게 정리하세요.
+- 오류 목록이 비어 있으면 "없음"이라고 작성하세요.
+- 새로운 맛집이나 실제 행사 일정을 임의로 추가하지 마세요.
+- 전체 내용은 한국어로 작성하세요.
+"""
+
+    client = genai.Client(api_key=gemini_api_key)
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.5-flash-lite",
+            contents=prompt,
+        )
+
+        if not response.text:
+            raise RuntimeError("Gemini가 빈 리포트를 반환했습니다.")
+
+        return response.text
+    finally:
+        client.close()
+
 def main():
     args = parse_args()
     gemini_api_key, kakao_rest_api_key = load_api_keys()
@@ -249,13 +306,29 @@ def main():
         print(f"  - 오류: Kakao 장소 검색 실패: {error}")
         print("  - 맛집은 데이터 없음으로 처리하고 계속 진행합니다.")
 
-    print("\n검색된 맛집:")
+    print("[3/3] 최종 리포트 생성 중(Gemini)...")
 
-    if restaurants:
-        for restaurant in restaurants:
-            print(f'  - {restaurant["name"]}')
-    else:
-        print("  - 데이터 없음")
+    try:
+        report = generate_report(
+            args.date,
+            recommendation,
+            restaurants,
+            errors,
+            gemini_api_key,
+        )
+        print("  - 리포트 생성 완료")
+
+    except Exception as error:
+        errors.append(
+            {
+                "step": "report_generation",
+                "type": "API_ERROR",
+                "message": str(error),
+            }
+        )
+
+        print(f"  - 오류: 최종 리포트 생성 실패: {error}")
+        raise SystemExit(1)
 
 if __name__ == "__main__":
     main()
