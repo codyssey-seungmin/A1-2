@@ -241,6 +241,27 @@ def generate_report(
     finally:
         client.close()
 
+def load_cached_results(date):
+    results_directory = Path("results")
+    json_path = results_directory / f"{date}_travel_data.json"
+    report_path = results_directory / f"{date}_travel_plan.md"
+
+    if not json_path.exists() or not report_path.exists():
+        return None
+
+    try:
+        raw_data = json.loads(
+            json_path.read_text(encoding="utf-8")
+        )
+        report = report_path.read_text(encoding="utf-8")
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    if raw_data.get("date") != date or not report.strip():
+        return None
+
+    return json_path, report_path
+
 def save_results(
     date,
     recommendation,
@@ -279,6 +300,17 @@ def save_results(
 
 def main():
     args = parse_args()
+    cached_paths = load_cached_results(args.date)
+
+    if cached_paths:
+        json_path, report_path = cached_paths
+
+        print("[캐시 사용] 같은 날짜의 저장된 결과를 불러왔습니다.")
+        print("  - Gemini와 Kakao API 호출을 생략합니다.")
+        print()
+        print(f"완료! 원본 데이터: {json_path}")
+        print(f"완료! 여행 리포트: {report_path}")
+        return
     gemini_api_key, kakao_rest_api_key = load_api_keys()
     errors = []
 
